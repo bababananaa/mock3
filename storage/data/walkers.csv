@@ -1,0 +1,5 @@
+id,name,hourly_rate_cents,max_dogs,active
+1,Maya Chen,2400,3,true
+2,Jordan Ruiz,2000,2,true
+3,Sam Okafor,2800,4,false
+4,Priya Nair,2200,1,true
