@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PawWalk</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #fff; --text: #1f1f1f; --muted: #6b6b6b;
+    --border: #e2e0da; --accent: #2f6f5e; --accent-text: #fff;
+    --danger: #b3412f; --ok: #2f6f5e; --warn: #9a6a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161616; --panel: #1f1f1f; --text: #ececec; --muted: #9a9a9a;
+      --border: #333; --accent: #5fb39c; --accent-text: #0f1f1a;
+      --danger: #e2735f; --ok: #5fb39c; --warn: #d8a849;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 20px;
+         padding: 20px 24px; max-width: 1200px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  section { background: var(--panel); border: 1px solid var(--border);
+            border-radius: 10px; padding: 16px; }
+  h2 { margin: 0 0 12px; font-size: 15px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  select, input { width: 100%; padding: 8px; border: 1px solid var(--border);
+                  border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 8px 14px; border: 0; border-radius: 6px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; }
+  button.link { background: none; color: var(--danger); padding: 2px 6px; font-weight: 500; }
+  form button { margin-top: 14px; width: 100%; }
+  .msg { margin-top: 12px; font-size: 13px; padding: 8px 10px; border-radius: 6px;
+         border: 1px solid var(--border); display: none; }
+  .msg.error { display: block; color: var(--danger); }
+  .msg.ok { display: block; color: var(--ok); }
+  .walkers { list-style: none; margin: 0; padding: 0; }
+  .walkers li { display: flex; justify-content: space-between; padding: 6px 0;
+                border-bottom: 1px solid var(--border); font-size: 14px; }
+  .walkers li:last-child { border-bottom: 0; }
+  .muted { color: var(--muted); }
+  .filters { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filters select { width: auto; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid currentColor; }
+  .pill.scheduled { color: var(--warn); }
+  .pill.completed { color: var(--ok); }
+  .pill.cancelled { color: var(--muted); }
+  tr.new { animation: flash 1.5s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 25%, transparent); } }
+  .stack { display: flex; flex-direction: column; gap: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐾 PawWalk</h1>
+  <p>Internal booking console. Talks to the JSON API on this server; data resets on restart.</p>
+</header>
+<main>
+  <div class="stack">
+    <section>
+      <h2>Book a walk</h2>
+      <form id="book">
+        <label for="walker">Walker</label>
+        <select id="walker" required></select>
+        <label for="dog">Dog</label>
+        <select id="dog" required></select>
+        <label for="start">Start time</label>
+        <input id="start" type="datetime-local" required>
+        <label for="duration">Duration</label>
+        <select id="duration">
+          <option value="30">30 minutes</option>
+          <option value="60">60 minutes</option>
+        </select>
+        <button type="submit">Book walk</button>
+        <div id="book-msg" class="msg"></div>
+      </form>
+    </section>
+    <section>
+      <h2>Active walkers</h2>
+      <ul id="walkers" class="walkers"></ul>
+    </section>
+  </div>
+  <section>
+    <h2>Walks</h2>
+    <div class="filters">
+      <select id="f-walker"><option value="">All walkers</option></select>
+      <select id="f-status">
+        <option value="">All statuses</option>
+        <option>scheduled</option>
+        <option>completed</option>
+        <option>cancelled</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Walker</th><th>Dog</th><th>Start</th><th>Min</th><th>Price</th><th>Status</th><th></th></tr></thead>
+        <tbody id="walks"></tbody>
+      </table>
+    </div>
+    <div id="walks-msg" class="msg"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const walkersById = {}, dogsById = {};
+let highlightId = null;
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" }, ...options,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`${res.status}: ${body.error || res.statusText}`);
+  return body;
+}
+
+const money = (cents) => `$${(cents / 100).toFixed(2)}`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function show(el, text, kind) {
+  el.textContent = text;
+  el.className = `msg ${kind}`;
+}
+
+async function loadReference() {
+  const [walkers, dogs] = await Promise.all([api("/walkers"), api("/dogs")]);
+  walkers.forEach((w) => (walkersById[w.id] = w));
+  dogs.forEach((d) => (dogsById[d.id] = d));
+
+  $("walker").innerHTML = walkers.map((w) =>
+    `<option value="${w.id}">${esc(w.name)} (${money(w.hourly_rate_cents)}/hr)</option>`).join("");
+  $("dog").innerHTML = dogs.map((d) =>
+    `<option value="${d.id}">${esc(d.name)} (${d.size})</option>`).join("");
+  $("f-walker").innerHTML += walkers.map((w) =>
+    `<option value="${w.id}">${esc(w.name)}</option>`).join("");
+  $("walkers").innerHTML = walkers.map((w) =>
+    `<li><span>${esc(w.name)}</span><span class="muted">${money(w.hourly_rate_cents)}/hr · max ${w.max_dogs} dogs</span></li>`).join("");
+}
+
+async function loadWalks() {
+  const params = new URLSearchParams();
+  if ($("f-walker").value) params.set("walker_id", $("f-walker").value);
+  if ($("f-status").value) params.set("status", $("f-status").value);
+  try {
+    const walks = await api(`/walks?${params}`);
+    walks.sort((a, b) => b.start_time.localeCompare(a.start_time));
+    $("walks").innerHTML = walks.map((w) => `
+      <tr class="${w.id === highlightId ? "new" : ""}">
+        <td>${w.id}</td>
+        <td>${esc(walkersById[w.walker_id]?.name ?? `#${w.walker_id} (inactive)`)}</td>
+        <td>${esc(dogsById[w.dog_id]?.name ?? `#${w.dog_id}`)}</td>
+        <td>${esc(w.start_time.replace("T", " "))}</td>
+        <td class="num">${w.duration_minutes}</td>
+        <td class="num">${money(w.price_cents)}</td>
+        <td><span class="pill ${w.status}">${w.status}</span></td>
+        <td>${w.status === "scheduled" ? `<button class="link" data-cancel="${w.id}">Cancel</button>` : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="8" class="muted">No walks match.</td></tr>`;
+    highlightId = null;
+  } catch (e) {
+    show($("walks-msg"), e.message, "error");
+  }
+}
+
+$("book").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const walk = await api("/walks", {
+      method: "POST",
+      body: JSON.stringify({
+        walker_id: Number($("walker").value),
+        dog_id: Number($("dog").value),
+        start_time: $("start").value,
+        duration_minutes: Number($("duration").value),
+      }),
+    });
+    show($("book-msg"), `Booked walk #${walk.id} for ${money(walk.price_cents)}.`, "ok");
+    highlightId = walk.id;
+    loadWalks();
+  } catch (err) {
+    show($("book-msg"), err.message, "error");
+  }
+});
+
+$("walks").addEventListener("click", async (e) => {
+  const id = e.target.dataset.cancel;
+  if (!id) return;
+  try {
+    await api(`/walks/${id}/cancel`, { method: "POST" });
+    $("walks-msg").className = "msg";
+    loadWalks();
+  } catch (err) {
+    show($("walks-msg"), err.message, "error");
+  }
+});
+
+$("f-walker").addEventListener("change", loadWalks);
+$("f-status").addEventListener("change", loadWalks);
+
+// Default the start time to tomorrow at 09:00 local.
+const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(9, 0, 0, 0);
+$("start").value = new Date(t - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+loadReference().then(loadWalks);
+</script>
+</body>
+</html>

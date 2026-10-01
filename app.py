@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 
 from api.routes import build_blueprint
 from services.errors import ServiceError
@@ -12,6 +12,10 @@ def create_app(store=None, clock=None):
     app = Flask(__name__)
     service = WalkService(store or CsvStore(), clock or datetime.now)
     app.register_blueprint(build_blueprint(service))
+
+    @app.get("/")
+    def index():
+        return send_from_directory(app.static_folder, "index.html")
 
     @app.errorhandler(ServiceError)
     def handle_service_error(error):

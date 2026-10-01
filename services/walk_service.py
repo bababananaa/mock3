@@ -15,6 +15,9 @@ class WalkService:
     def list_walkers(self):
         return [walker for walker in self.store.all("walkers") if walker["active"]]
 
+    def list_dogs(self):
+        return self.store.all("dogs")
+
     def get_walker(self, walker_id):
         return self._require("walkers", walker_id)
 

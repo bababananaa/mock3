@@ -18,6 +18,10 @@ def build_blueprint(service):
     def get_walker(walker_id):
         return jsonify(service.get_walker(walker_id))
 
+    @bp.get("/dogs")
+    def list_dogs():
+        return jsonify(service.list_dogs())
+
     @bp.get("/walks")
     def list_walks():
         return jsonify(service.list_walks(
